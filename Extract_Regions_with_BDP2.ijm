@@ -60,11 +60,11 @@ var resizeFactor = 0.5;
 */
 var memoryWasOpen = isOpen("Memory");
 var virtualOneDimensionalTIFF;
-var inputPath, inputDir, inputFile, inputFileName;
+var inputDir, inputFileName, extension, inputPath;
 var inputImage, inputImageName;
 var isMultiSeries;
 var isMetamorph;
-var isZeissCZI;
+var isPyramidal;
 var inputImageTitle;
 var outputDir;
 var seriesindex;
@@ -87,8 +87,8 @@ function getParams() {
 function getInputPath() {
 	inputPath = File.openDialog("Open Image as a Virtual stack");
 	inputDir = File.getDirectory(inputPath);
-	inputFile = File.getName(inputPath);
 	inputFileName = File.getNameWithoutExtension(inputPath);
+	extension = substring(inputPath, lastIndexOf(inputPath, "."));
 }
 
 function execute() {
@@ -100,31 +100,30 @@ function execute() {
 	print(email);
 	getInputPath();
 	print("\ninputDir = "+inputDir);
-	print("inputFile = "+inputFile);
 	print("inputFileName = "+inputFileName);
-	isMetamorph = endsWith(inputFile, ".nd");
+	print("extension = "+extension);
+	isMetamorph = (extension==".nd");
 	print("isMetamorph = "+isMetamorph);
-	isZeissCZI = endsWith(inputFile, ".czi");
-	print("isZeissCZI = "+isZeissCZI);
-	lowercaseInputFile = toLowerCase(inputFile);
-	virtualOneDimensionalTIFF = (endsWith(lowercaseInputFile, ".tif") ||
-		endsWith(lowercaseInputFile, ".zip"));
+	lowercaseExtension = toLowerCase(extension);
+	virtualOneDimensionalTIFF = (extension==".tif" || extension==".zip");
 	outputDir = getDirectory("Destination Directory ");
 	print("outputDir = "+outputDir);
 
-	analyzeSeriesNames(inputDir, inputFile);
-	//exit;
+	analyzeSeriesNames(inputDir, inputFileName+extension);
 
 	Dialog.createNonBlocking("Extract_Regions_with_BDP2");
-	msg = "Pyramidal images\n"+
-	"Open highest resolution (#1 for Zeiss CZI, _0 for HDF5)"+
-		"\nto setup crop domains";
+	msg = "Pyramidal images:\n"+
+		"Open highest resolution:"+
+		"\nFor single series or multi-series 1st series:"+
+		"\nZeiss CZI :  #1"+
+		"\nHDF5 :         _0";
 	Dialog.addMessage(msg);
 	Dialog.show();
 
 	launchMemoryMonitor();
 	if (virtualOneDimensionalTIFF) {
-		run("Image Sequence...", "select=["+inputDir+"] filter=["+inputFile+"] count=1 sort use");
+		run("Image Sequence...", "select=["+inputDir+"] "+
+			"filter=["+inputFileName+extension+"] count=1 sort use");
 	}
 	else {
 		open(inputPath);
@@ -169,7 +168,6 @@ function execute() {
 	//close();
 	roiManager("deselect");
 	roiManager("save", outputDir+inputImageTitle+"_Crop-Rois.zip");
-	
 	//Process Crop-Rois from Roi Manager
 	nregions = roiManager("count")/2;//each region is defined by 2 Rois
 	close();//close image used for Crop-Rois drawing
@@ -197,7 +195,6 @@ function execute() {
 		mint[r] = mintPlus1-1;
 		//print("minx="+minx[r]+"  miny="+miny[r]+"  minz="+minz[r]+
 		//	"  minc="+minc[r]+"  mint="+mint[r]);
-
 		roiManager("select", 2*r+1);
 		Roi.getPosition(maxcPlus1, maxzPlus1, maxtPlus1);
 		maxc[r] = maxcPlus1-1;
@@ -211,13 +208,12 @@ function execute() {
 	selectImage(tmpid);
 	close();
 
-	print("inputPath");
+	print("inputPath:");
 	print(inputPath);
 
 //	Can't be closed using an ImageJ command
 	run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file=["
 	+inputPath+"] seriesindex="+seriesindex);
-
 	/*
 	run("BDP2 Open Bio-Formats...", "viewingmodality=[Do not show] enablearbitraryplaneslicing=true file="
 	+inputPath+" seriesindex="+seriesindex);
@@ -299,8 +295,12 @@ function getSeriesIndex(imageID) {
 	return parseInt(position);
 }
 
-/** Requires run("Bio-Formats Macro Extensions");
- * 'file' filename with extension */
+/** Planned for finding highest resolution image in pyramidal series
+ *  NOT YET OPERATIVE
+ *  Requires run("Bio-Formats Macro Extensions");
+ * 'file' filename with extension
+ *  Requires run("Bio-Formats Macro Extensions");
+ **/
 function analyzeSeriesNames(dir, file) {
 	if (endsWith(file, ".h(")) return;
 	path=dir+file;
