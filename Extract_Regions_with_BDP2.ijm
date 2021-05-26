@@ -32,9 +32,9 @@
 
 
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 08;
-var copyRight = "Authors: Marcel Boeglin - Bertrand Vernay,  May 2021";
-var email = "e-mail: boeglin@igbmc.fr";
+var version = 09;
+var copyRight = "Authors: Marcel Boeglin - Bertrand Vernay, May 2021";
+var email = "e-mail: boeglin@igbmc.fr, vernayb@igbmc.fr";
 
 var width, height, channels, slices, frames;
 
@@ -63,6 +63,7 @@ var inputPath, inputDir, inputFile, inputFileName;
 var inputImage, inputImageName;
 var isMultiSeries;
 var isMetamorph;
+var isZeissCZI;
 var inputImageTitle;
 var outputDir;
 var seriesindex;
@@ -98,6 +99,16 @@ function execute() {
 	print("inputFileName = "+inputFileName);
 	isMetamorph = endsWith(inputFile, ".nd");
 	print("isMetamorph = "+isMetamorph);
+	isZeissCZI = endsWith(inputFile, ".czi");
+	print("isZeissCZI = "+isZeissCZI);
+	if (isZeissCZI) {
+		Dialog.createNonBlocking("Extract_Regions_with_BDP2");
+		msg = "Zeiss Pyramidal images\n"+
+		"Open highest resolution (#1) to setup crop domains\n"+
+		"";
+		Dialog.addMessage(msg);
+		Dialog.show();
+	}
 	
 	outputDir = getDirectory("Destination Directory ");
 	print("outputDir = "+outputDir);
@@ -263,7 +274,6 @@ function getSeriesIndex(imageID) {
 		print("str = "+str);
 		index2 = indexOf(str, " \"");
 		print("index2 = "+index2);
-		//position = substring(str, 0+8, index2);
 		position = substring(str, 5, index2);
 		print("position = "+position);
 		return parseInt(position) - 1;
