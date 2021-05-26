@@ -32,7 +32,7 @@
 
 
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 11;
+var version = 14;
 var copyRight = "Author: Marcel Boeglin";
 var email = "e-mail: boeglin@igbmc.fr";
 
@@ -310,15 +310,27 @@ function analyzeSeriesNames(dir, file) {
 	//print("Processing the file = " + file);
 // See:
 //http://imagej.1557.x6.nabble.com/multiple-series-with-bioformats-importer-td5003491.html
+	//while next size is a fraction of current (1/3 for CZI, 1/2 for BDP2 HDF5
+	//the images belon to the same pyramidal series with different resolutions
 	for (j=0; j<seriesCount; j++) {
 		//print("Extracting Series "+j+1+" / "+seriesCount);
 		Ext.setSeries(j);
 		Ext.getSeriesName(seriesName);
 		print("seriesName = "+seriesName);
+		Ext.getUsedFileCount(count);
+		print("usedFileCount = "+count);
+/*
+		Ext.getUsedFile(j, used);//Macro Error
+		print("used file : j = "+j+"File = "+used);
+*/
+		Ext.getCurrentFile(currentFile);
+		print("file = "+currentFile);
+		Ext.getSizeX(sizeX);
+        Ext.getSizeY(sizeY);
+		print("sizeX = "+sizeX+"    sizeY = "+sizeY);
 		seriesName = replace(seriesName, "\"", "");
 	}
 }
-
 
 function chooseImageToProcess(path) {//not used
 	Ext.setId(path);
@@ -485,4 +497,4 @@ function findFile(dir, filename) {
 }
 
 //80 chars:
-//23456789 123456789 123456789 123456789 123456789 123456789 123456789 1234567890
+//23456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789
