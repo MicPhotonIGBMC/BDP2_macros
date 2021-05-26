@@ -31,10 +31,10 @@
  *    - close crop
  */
 
-//Commande pour fermer unne image ouverte dans BDP2 ???
+//Commande pour fermer une image ouverte dans BDP2 ???
 
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 04;
+var version = 05;
 var copyRight = "Author: Marcel Boeglin - May 2021";
 var email = "e-mail: boeglin@igbmc.fr";
 
@@ -184,8 +184,8 @@ function execute() {
 		//i = 2*r;
 		roiManager("select", 2*r);
 		Roi.getBounds(minX, minY, w, h);
-		print("minX = "+minX);
-		print("minY = "+minY);
+		//print("minX = "+minX);
+		//print("minY = "+minY);
 		//Roi.getBounds(minx[r], miny[r], w, h);
 		minx[r] = minX; miny[r] = minY;
 		//Roi.getPosition(channel, slice, frame);
@@ -193,8 +193,8 @@ function execute() {
 		minc[r] = mincPlus1-1;
 		minz[r] = minzPlus1-1;
 		mint[r] = mintPlus1-1;
-		print("minx="+minx[r]+"  miny="+miny[r]+"  minz="+minz[r]+
-			"  minc="+minc[r]+"  mint="+mint[r]);
+		//print("minx="+minx[r]+"  miny="+miny[r]+"  minz="+minz[r]+
+		//	"  minc="+minc[r]+"  mint="+mint[r]);
 
 		roiManager("select", 2*r+1);
 		Roi.getPosition(maxcPlus1, maxzPlus1, maxtPlus1);
@@ -203,8 +203,8 @@ function execute() {
 		maxt[r] = maxtPlus1-1;
 		maxx[r] = minx[r]+w;
 		maxy[r] = miny[r]+h;
-		print("maxx="+maxx[r]+"  maxy="+maxy[r]+"  maxz="+maxz[r]+
-			"  maxc="+maxc[r]+"  maxt="+maxt[r]);
+		//print("maxx="+maxx[r]+"  maxy="+maxy[r]+"  maxz="+maxz[r]+
+		//	"  maxc="+maxc[r]+"  maxt="+maxt[r]);
 	}
 	selectImage(tmpid);
 	close();
@@ -212,20 +212,27 @@ function execute() {
 	print("inputPath");
 	print(inputPath);
 
-//	Desactivation temporaire
+
+//	Ne peut pas etre ferme par une commande ImageJ
 	run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file="
 	+inputPath+" seriesindex="+seriesindex);
 
+/*
+//	ENCORE PIRE, l'image ne peut pas etre fermee du tout sf en fermant ImageJ
+	run("BDP2 Open Bio-Formats...", "viewingmodality=[Do not show] enablearbitraryplaneslicing=true file="
+	+inputPath+" seriesindex="+seriesindex);
+*/
 	//inputimage = getTitle();//not a ImageJ image
 	inputimage = getInfo("window.title");//marche pas
 	inputimage = inputFileName;//nom du fichier nd
 	print("inputimage = "+inputimage);
 
 	for (r=0; r<nregions; r++) {
+		print("");
 		print("minx="+minx[r]+"  miny="+miny[r]+"  minz="+minz[r]+
 			"  minc="+minc[r]+"  mint="+mint[r]);
-
-
+		print("maxx="+maxx[r]+"  maxy="+maxy[r]+"  maxz="+maxz[r]+
+			"  maxc="+maxc[r]+"  maxt="+maxt[r]);
 		outputimagename = inputImageTitle+"_Crop_"+r;
 		run("BDP2 Crop...", "inputimage=["+inputimage+
 			"] outputimagename=["+outputimagename+
@@ -234,12 +241,32 @@ function execute() {
 				" minc="+minc[r]+" mint="+mint[r]+""+
 			" maxx="+maxx[r]+" maxy="+maxy[r]+" maxz="+maxz[r]+
 				" maxc="+maxc[r]+" maxt="+maxt[r]+" ");
-		//run("BDP2 Save As...", "inputimage=[test-4-crop] directory=[C:\\Users_Data\\Celine\\20180627_partie_XMLHDF5_crop\\] numiothreads=1 numprocessingthreads=4 filetype=[BigDataViewerXMLHDF5] saveprojections=false savevolumes=true tiffcompression=[None] tstart=0 tend=7 ");
 		run("BDP2 Save As...", "inputimage=["+outputimagename+
 			"] directory=["+outputDir+"] numiothreads=1 numprocessingthreads=4"+
 			" filetype=[BigDataViewerXMLHDF5] saveprojections=false"+
 			" savevolumes=true tiffcompression=[None]"+
 			" tstart="+mint[r]+" tend="+mint[r]);
+		closeBDPViewer(outputimagename);
+	}
+	closeBDPViewer(inputimage);
+}
+
+/**
+ * Doesn't work because BDP2 viewers are not ImageJ windows
+ */
+function closeBDPViewer(imagename) {
+	nonimageWindows = getList("window.titles");
+	if (nonimageWindows.length<1) return;
+	print("\nCurrent Non Image Windows:");
+	//Array.print(nonimageWindows);
+	for (i=0; i<nonimageWindows.length; i++) {
+		wintitle = nonimageWindows[i];
+		print(wintitle);
+		//if (wintitle != imagename) continue;
+		if (wintitle == imagename) {
+			selectWindow(imagename);
+			run("Close");
+		}
 	}
 }
 
