@@ -111,13 +111,17 @@ function execute() {
 		endsWith(lowercaseInputFile, ".zip"));
 	outputDir = getDirectory("Destination Directory ");
 	print("outputDir = "+outputDir);
-	if (isZeissCZI) {
-		Dialog.createNonBlocking("Extract_Regions_with_BDP2");
-		msg = "Zeiss Pyramidal images\n"+
-		"Open highest resolution (#1)\nto setup crop domains";
-		Dialog.addMessage(msg);
-		Dialog.show();
-	}
+
+	analyzeSeriesNames(inputDir, inputFile);
+	//exit;
+
+	Dialog.createNonBlocking("Extract_Regions_with_BDP2");
+	msg = "Pyramidal images\n"+
+	"Open highest resolution (#1 for Zeiss CZI, _0 for HDF5)"+
+		"\nto setup crop domains";
+	Dialog.addMessage(msg);
+	Dialog.show();
+
 	launchMemoryMonitor();
 	if (virtualOneDimensionalTIFF) {
 		run("Image Sequence...", "select=["+inputDir+"] filter=["+inputFile+"] count=1 sort use");
@@ -295,9 +299,30 @@ function getSeriesIndex(imageID) {
 	return parseInt(position);
 }
 
+/** Requires run("Bio-Formats Macro Extensions");
+ * 'file' filename with extension */
+function analyzeSeriesNames(dir, file) {
+	if (endsWith(file, ".h(")) return;
+	path=dir+file;
+	Ext.setId(path);
+	Ext.getCurrentFile(file);
+	Ext.getSeriesCount(seriesCount);//gets the number of series in input file
+	//print("Processing the file = " + file);
+// See:
+//http://imagej.1557.x6.nabble.com/multiple-series-with-bioformats-importer-td5003491.html
+	for (j=0; j<seriesCount; j++) {
+		//print("Extracting Series "+j+1+" / "+seriesCount);
+		Ext.setSeries(j);
+		Ext.getSeriesName(seriesName);
+		print("seriesName = "+seriesName);
+		seriesName = replace(seriesName, "\"", "");
+	}
+}
+
+
 function chooseImageToProcess(path) {//not used
 	Ext.setId(path);
-	Ext.getCurrentFile(fileToProcess);
+	Ext.getCurrentFile(path);
 	Ext.getSeriesCount(seriesCount); // this gets the number of series
 	if (seriesCount==1) 
 	print("Processing the file = " + fileToProcess);
