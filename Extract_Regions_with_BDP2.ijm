@@ -32,7 +32,7 @@
 
 
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 07;
+var version = 08;
 var copyRight = "Authors: Marcel Boeglin - Bertrand Vernay,  May 2021";
 var email = "e-mail: boeglin@igbmc.fr";
 
@@ -132,7 +132,9 @@ function execute() {
 	while (true) {
 		if (++i > nmax) break;
 		if (isKeyDown("shift")) break;
+		wait(1000);
 		addRegionToManager();
+		wait(1000);
 	}
 	//close();
 	roiManager("deselect");
@@ -289,6 +291,7 @@ function chooseImageToProcess(path) {
 function addRegionToManager() {
 //region begin
 	Stack.setPosition(previousMinC, previousMinZ, previousMinT);
+		wait(1000);
 	waitForUser("Draw a rectangle, Select 1st Slice, Channel and Frame\n"+
 		"Press OK to validate");
 	Stack.getPosition(channel, slice, frame);
@@ -305,6 +308,7 @@ function addRegionToManager() {
 //region end
 	roiManager("deselect");
 	Stack.setPosition(previousMaxC, previousMaxZ, previousMaxT);
+		wait(1000);
 	waitForUser("Select last Slice and Frame of region\n"+
 		"DO NOT REMOVE ROI\n"+
 		"Press OK to validate\nPress Shift-OK to finish");
@@ -427,7 +431,6 @@ function findFile(dir, filename) {
 	}
 	return false;
 }
-
 
 
 //80 chars:
