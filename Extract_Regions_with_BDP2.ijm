@@ -1,4 +1,3 @@
-
 /**
  * Extract_Regions_with_BDP2_
  * Author: Marcel Boeglin
@@ -31,65 +30,51 @@
  *    - close crop
  */
 
-//Commande pour fermer une image ouverte dans BDP2 ???
 
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 05;
+var version = 06;
 var copyRight = "Author: Marcel Boeglin - May 2021";
 var email = "e-mail: boeglin@igbmc.fr";
 
-var doCrop = true;
-var cropRoisImagesDir;
-var dir1;//input folder
-var dir2;//output folder
-var dir3;//folder containing images with crop-rois in their overlay
-
-var doRangeAroundMedianSlice = false;
-var rangeAroundMedianSlice = 50;// % of stack-size
-/*
-var firstSlice = 0;//in BDP, slice range is [0, slices-1]
-var lastSlice = slices-1;
-*/
 var width, height, channels, slices, frames;
 
-//to keep memory of previous slider positions
+//keep memory of previous slider positions
 var previousMinC, previousMinZ, previousMinT;
 var previousMaxC, previousMaxZ, previousMaxT;
 
 var minx, miny, minz, minc, mint;
 var maxx, maxy, maxz, maxc, maxt;
 
-//inutile
+/*
+//not used
+var doRangeAroundMedianSlice = false;
+var rangeAroundMedianSlice = 50;// % of stack-size
 var timepoints;
 var firstTimePoint = 0;//in BDP, time range is [0, timepoints-1]
-var lastTimePoint = timepoints-1;
-
-//Non utilise, a revoir : 
-//var doRangeFrom_t0 = false;
-//var rangeFrom_t0 = 50;// % of timepoints
-//remplacement par:
-
-var medianTimepoint = timepoints/2;
+var lastTimePoint;
+var medianTimepoint;
 var rangeAroundMedianTimePoint = 50;// % of timepoints
 var doRangeAroundMedianTimePoint = false;// if false do all time points
-
 var resize = false;
 var resizeFactor = 0.5;
-
+*/
+var memoryWasOpen = isOpen("Memory");
 var inputPath, inputDir, inputFile, inputFileName;
 var inputImage, inputImageName;
 var isMultiSeries;
 var isMetamorph;
 var inputImageTitle;
 var outputDir;
-
 var seriesindex;
+
 
 //Macro BEGIN
 
 run("Bio-Formats Macro Extensions");
 execute();
+if (memoryWasOpen) exit;
 closeMemoryMonitor();
+
 //Macro END
 
 
@@ -103,20 +88,10 @@ function getInputPath() {
 function execute() {
 	print("\\Clear");
 	close("*");
-/*
-	dir3 = cropRoisImagesDir;
-	if (!File.exists(dir3)) dir3 = "";
-*/
 	print(macroname+version+".ijm");
 	print(macroDescription());
 	print(copyRight);
 	print(email);
-/*
-	print("dir1 = "+dir1);
-	print("dir2 = "+dir2);
-	print("dir3 = "+dir3);
-	print("cropRoisImagesDir = "+cropRoisImagesDir);
-*/
 	getInputPath();
 	print("\ninputDir = "+inputDir);
 	print("inputFile = "+inputFile);
@@ -126,7 +101,6 @@ function execute() {
 	
 	outputDir = getDirectory("Destination Directory ");
 	print("outputDir = "+outputDir);
-	//if (launchMemory)
 	launchMemoryMonitor();
 	open(inputPath);
 	imageID = getImageID();
@@ -166,13 +140,9 @@ function execute() {
 	
 	//Process Crop-Rois from Roi Manager
 	nregions = roiManager("count")/2;//each region is defined by 2 Rois
-	//utiliser le nom du fichier ouvert avec Bioformat
-	//Probleme: comment recuperer l'indice de la position ouverte en mode virtuel
-
-	//Close virtual input image and Replace with a real image having 1 slice,
-	//width=1, height=1 to get Roi coordinates
 	close();//close image used for Crop-Rois drawing
-	newImage("Tmp", "8-bit", width, height, 1);//works also
+	//newImage("Tmp", "8-bit", 1, 1, 1);// -> false RoiX and RoiY
+	newImage("Tmp", "8-bit", width, height, 1);
 	tmpid = getImageID();
 	size = nregions;
 	minx = newArray(size); miny = newArray(size); minz = newArray(size);
@@ -213,19 +183,28 @@ function execute() {
 	print(inputPath);
 
 
-//	Ne peut pas etre ferme par une commande ImageJ
+//	Can't be closed using an ImageJ command
 	run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file="
 	+inputPath+" seriesindex="+seriesindex);
 
-/*
-//	ENCORE PIRE, l'image ne peut pas etre fermee du tout sf en fermant ImageJ
+	/*
 	run("BDP2 Open Bio-Formats...", "viewingmodality=[Do not show] enablearbitraryplaneslicing=true file="
 	+inputPath+" seriesindex="+seriesindex);
-*/
-	//inputimage = getTitle();//not a ImageJ image
-	inputimage = getInfo("window.title");//marche pas
-	inputimage = inputFileName;//nom du fichier nd
-	print("inputimage = "+inputimage);
+	//image can be closed only by closing Fiji
+	*/
+	//Attempts to get image or viewer title to be able to close it
+	//inputimage = getTitle();//not an ImageJ image
+	inputimageWindowTitle = getInfo("window.title");
+	print("inputimageWindowTitle = "+inputimageWindowTitle);
+	/*
+	 * Conclusion: When a new viewer is created in BDP2, it's not added to the ImageJ windows using
+	 * ij.WindowManager.addWindow(java.awt.Frame win) 
+	 * or
+	 * ij.WindowManager.ddWindow(java.awt.Window win)
+	 * and can't therefore not be closed using any ImageJ command
+	 */
+	inputimage = inputFileName;
+	print("\ninputimage = "+inputimage);
 
 	for (r=0; r<nregions; r++) {
 		print("");
@@ -361,22 +340,6 @@ function closeMemoryMonitor() {
 	if (!isOpen("Memory")) return;
 	selectWindow("Memory");
 	run("Close");
-}
-
-function getDirs() {
-	dir1 = getDirectory("Source Directory ");
-	if (!File.exists(dir1)) return false;
-	if (doCrop) {
-		cropRoisImagesDir = getDirectory("Directory containing Crop-Rois");
-		if (!File.exists(cropRoisImagesDir)) return false;
-	}
-	dir2 = getDirectory("Destination Directory ");
-	while (dir2==dir1) {
-		showMessage("Destination must be different from source");
-		dir2 = getDirectory("Choose Destination Directory ");
-	}
-	if (!File.exists(dir2)) return false;
-	return true;
 }
 
 function getFiles(dir) {
