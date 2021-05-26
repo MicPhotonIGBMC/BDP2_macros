@@ -1,7 +1,6 @@
 /** Extract_Regions_with_BDP2_
- * Authors: 
+ * Author: 
  * Marcel Boeglin: boeglin@igbmc.fr
- * Bertand Vernay: vernayb@igbmc.fr
  * May 2021
  */
 
@@ -27,14 +26,15 @@
  *    - run("BDP2 Crop...", "inputimage=..., xmin, ymin, zmin, cmin tmin, 
  *      xmax, ymax, zmax, cmax, tmax); in a new window
  *    - save crop to output folder
- *    - close crop
+ *    - close crop viewer (not working)
+ * 9. Close input image viewer (not working)
  */
 
 
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 10;
-var copyRight = "Authors: Marcel Boeglin - Bertrand Vernay, May 2021";
-var email = "e-mail: boeglin@igbmc.fr, vernayb@igbmc.fr";
+var version = 11;
+var copyRight = "Author: Marcel Boeglin";
+var email = "e-mail: boeglin@igbmc.fr";
 
 var width, height, channels, slices, frames;
 var stackSize;
@@ -59,12 +59,12 @@ var resize = false;
 var resizeFactor = 0.5;
 */
 var memoryWasOpen = isOpen("Memory");
+var virtualOneDimensionalTIFF;
 var inputPath, inputDir, inputFile, inputFileName;
 var inputImage, inputImageName;
 var isMultiSeries;
 var isMetamorph;
 var isZeissCZI;
-var isTIFF;
 var inputImageTitle;
 var outputDir;
 var seriesindex;
@@ -79,6 +79,10 @@ closeMemoryMonitor();
 
 //Macro END
 
+
+function getParams() {
+	Dialog.create("Title");
+}
 
 function getInputPath() {
 	inputPath = File.openDialog("Open Image as a Virtual stack");
@@ -103,22 +107,20 @@ function execute() {
 	isZeissCZI = endsWith(inputFile, ".czi");
 	print("isZeissCZI = "+isZeissCZI);
 	lowercaseInputFile = toLowerCase(inputFile);
-	isTIFF = (endsWith(lowercaseInputFile, ".tif") ||
-				endsWith(lowercaseInputFile, ".zip"));
+	virtualOneDimensionalTIFF = (endsWith(lowercaseInputFile, ".tif") ||
+		endsWith(lowercaseInputFile, ".zip"));
+	outputDir = getDirectory("Destination Directory ");
+	print("outputDir = "+outputDir);
 	if (isZeissCZI) {
 		Dialog.createNonBlocking("Extract_Regions_with_BDP2");
 		msg = "Zeiss Pyramidal images\n"+
-		"Open highest resolution (#1) to setup crop domains\n"+
-		"";
+		"Open highest resolution (#1)\nto setup crop domains";
 		Dialog.addMessage(msg);
 		Dialog.show();
 	}
-	
-	outputDir = getDirectory("Destination Directory ");
-	print("outputDir = "+outputDir);
 	launchMemoryMonitor();
-	if (isTIFF) {
-		run("TIFF Virtual Stack...", inputPath);
+	if (virtualOneDimensionalTIFF) {
+		run("Image Sequence...", "select=["+inputDir+"] filter=["+inputFile+"] count=1 sort use");
 	}
 	else {
 		open(inputPath);
@@ -128,20 +130,21 @@ function execute() {
 	//if (isMetamorph)
 		seriesindex = getSeriesIndex(imageID);
 	Stack.getDimensions(width, height, channels, slices, frames);
+	print(width);
 	stackSize = channels*slices*frames;
 	inputImageTitle = getTitle();
 	print("inputImageTitle : "+inputImageTitle);
 	inputImageTitle = replace(inputImageTitle, "\"", "");
 	imageID = getImageID();
-	if (channels>1) {
+	if (channels>1)
 		Stack.setDisplayMode("composite");
-	}
 	s = slices/2; if (s<1) s=1; if (slices>1) Stack.setSlice(s);
 	t = frames/2; if (t<1) t=1; if (frames>1) Stack.setFrame(t);
-	if (channels>1)
+	if (channels>1) {
 		for (c=1; c<=channels; c++) {
 			Stack.setChannel(c); run("Enhance Contrast", "saturated=0.25");
 		}
+	}
 	roiManager("Associate", "false");
 	roiManager("Centered", "false");
 	roiManager("UseNames", "false");
@@ -208,8 +211,8 @@ function execute() {
 	print(inputPath);
 
 //	Can't be closed using an ImageJ command
-	run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file="
-	+inputPath+" seriesindex="+seriesindex);
+	run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file=["
+	+inputPath+"] seriesindex="+seriesindex);
 
 	/*
 	run("BDP2 Open Bio-Formats...", "viewingmodality=[Do not show] enablearbitraryplaneslicing=true file="
@@ -455,7 +458,6 @@ function findFile(dir, filename) {
 	}
 	return false;
 }
-
 
 //80 chars:
 //23456789 123456789 123456789 123456789 123456789 123456789 123456789 1234567890
