@@ -32,12 +32,12 @@
 
 
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 09;
+var version = 10;
 var copyRight = "Authors: Marcel Boeglin - Bertrand Vernay, May 2021";
 var email = "e-mail: boeglin@igbmc.fr, vernayb@igbmc.fr";
 
 var width, height, channels, slices, frames;
-
+var stackSize;
 //keep memory of previous slider positions
 var previousMinC, previousMinZ, previousMinT;
 var previousMaxC, previousMaxZ, previousMaxT;
@@ -64,6 +64,7 @@ var inputImage, inputImageName;
 var isMultiSeries;
 var isMetamorph;
 var isZeissCZI;
+var isTIFF;
 var inputImageTitle;
 var outputDir;
 var seriesindex;
@@ -101,6 +102,9 @@ function execute() {
 	print("isMetamorph = "+isMetamorph);
 	isZeissCZI = endsWith(inputFile, ".czi");
 	print("isZeissCZI = "+isZeissCZI);
+	lowercaseInputFile = toLowerCase(inputFile);
+	isTIFF = (endsWith(lowercaseInputFile, ".tif") ||
+				endsWith(lowercaseInputFile, ".zip"));
 	if (isZeissCZI) {
 		Dialog.createNonBlocking("Extract_Regions_with_BDP2");
 		msg = "Zeiss Pyramidal images\n"+
@@ -113,22 +117,31 @@ function execute() {
 	outputDir = getDirectory("Destination Directory ");
 	print("outputDir = "+outputDir);
 	launchMemoryMonitor();
-	open(inputPath);
+	if (isTIFF) {
+		run("TIFF Virtual Stack...", inputPath);
+	}
+	else {
+		open(inputPath);
+	}
+	if (nImages<1) {showMessage("No image: Macro aborted"); return;}
 	imageID = getImageID();
 	//if (isMetamorph)
 		seriesindex = getSeriesIndex(imageID);
-	if (nImages<1) {showMessage("No image: Macro aborted"); return;}
+	Stack.getDimensions(width, height, channels, slices, frames);
+	stackSize = channels*slices*frames;
 	inputImageTitle = getTitle();
 	print("inputImageTitle : "+inputImageTitle);
 	inputImageTitle = replace(inputImageTitle, "\"", "");
 	imageID = getImageID();
-	Stack.setDisplayMode("composite");
-	Stack.getDimensions(width, height, channels, slices, frames);
-	s = slices/2; if (s<1) s=1; Stack.setSlice(s);
-	t = frames/2; if (t<1) t=1; Stack.setFrame(t);
-	for (c=1; c<=channels; c++) {
-		Stack.setChannel(c); run("Enhance Contrast", "saturated=0.25");
+	if (channels>1) {
+		Stack.setDisplayMode("composite");
 	}
+	s = slices/2; if (s<1) s=1; if (slices>1) Stack.setSlice(s);
+	t = frames/2; if (t<1) t=1; if (frames>1) Stack.setFrame(t);
+	if (channels>1)
+		for (c=1; c<=channels; c++) {
+			Stack.setChannel(c); run("Enhance Contrast", "saturated=0.25");
+		}
 	roiManager("Associate", "false");
 	roiManager("Centered", "false");
 	roiManager("UseNames", "false");
@@ -137,15 +150,14 @@ function execute() {
 	nmax = 20;
 	previousMinC=1; previousMinZ=1; previousMinT=1;
 	previousMaxC=channels; previousMaxZ=slices; previousMaxT=frames;
-	Stack.setPosition(previousMinC, previousMinZ, previousMinT);
+	if (stackSize>1)
+		Stack.setPosition(previousMinC, previousMinZ, previousMinT);
 	makeRectangle(3*width/8, 3*height/8, width/4, height/4);
 	i=0;
 	while (true) {
 		if (++i > nmax) break;
 		if (isKeyDown("shift")) break;
-		wait(1000);
 		addRegionToManager();
-		wait(1000);
 	}
 	//close();
 	roiManager("deselect");
@@ -194,7 +206,6 @@ function execute() {
 
 	print("inputPath");
 	print(inputPath);
-
 
 //	Can't be closed using an ImageJ command
 	run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file="
@@ -281,7 +292,7 @@ function getSeriesIndex(imageID) {
 	return parseInt(position);
 }
 
-function chooseImageToProcess(path) {
+function chooseImageToProcess(path) {//not used
 	Ext.setId(path);
 	Ext.getCurrentFile(fileToProcess);
 	Ext.getSeriesCount(seriesCount); // this gets the number of series
@@ -301,9 +312,12 @@ function chooseImageToProcess(path) {
 function addRegionToManager() {
 //region begin
 	Stack.setPosition(previousMinC, previousMinZ, previousMinT);
-		wait(1000);
-	waitForUser("Draw a rectangle, Select 1st Slice, Channel and Frame\n"+
-		"Press OK to validate");
+	msg = "Draw a rectangle, Select 1st Slice, Channel and Frame\n"+
+		"Press OK to validate";
+	if (stackSize<2)
+		msg = "Draw a rectangle\n"+
+			"Press OK to validate\nPress Shift-OK to finish";
+	waitForUser(msg);
 	Stack.getPosition(channel, slice, frame);
 	Roi.setPosition(channel, slice, frame);
 	previousMinC=channel; previousMinZ=slice; previousMinT=frame;
@@ -318,10 +332,10 @@ function addRegionToManager() {
 //region end
 	roiManager("deselect");
 	Stack.setPosition(previousMaxC, previousMaxZ, previousMaxT);
-		wait(1000);
-	waitForUser("Select last Slice and Frame of region\n"+
-		"DO NOT REMOVE ROI\n"+
-		"Press OK to validate\nPress Shift-OK to finish");
+	if (stackSize>1)
+		waitForUser("Select last Slice and Frame of region\n"+
+			"DO NOT REMOVE ROI\n"+
+			"Press OK to validate\nPress Shift-OK to finish");
 	Stack.getPosition(channel, slice, frame);
 	Roi.setPosition(channel, slice, frame);
 	previousMaxC=channel; previousMaxZ=slice; previousMaxT=frame;
