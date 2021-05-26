@@ -43,20 +43,31 @@ var dir1;//input folder
 var dir2;//output folder
 var dir3;//folder containing images with crop-rois in their overlay
 
-var slices;
-var firstSlice = 0;//in BDP, slice range is [0, slices-1]
-var lastSlice = slices-1;
 var doRangeAroundMedianSlice = false;
 var rangeAroundMedianSlice = 50;// % of stack-size
+/*
+var firstSlice = 0;//in BDP, slice range is [0, slices-1]
+var lastSlice = slices-1;
+*/
+var width, height, channels, slices, frames;
 
+//to keep memory of previous slider positions
+var previousMinC, previousMinZ, previousMinT;
+var previousMaxC, previousMaxZ, previousMaxT;
+
+var minx=0, miny=0, minz=0, minc=0, mint=0;
+var maxx, maxy, maxz, maxc, maxt;
+
+//inutile
 var timepoints;
 var firstTimePoint = 0;//in BDP, time range is [0, timepoints-1]
 var lastTimePoint = timepoints-1;
 
-//a revoir : 
+//Non utilise, a revoir : 
 //var doRangeFrom_t0 = false;
 //var rangeFrom_t0 = 50;// % of timepoints
 //remplacement par:
+
 var medianTimepoint = timepoints/2;
 var rangeAroundMedianTimePoint = 50;// % of timepoints
 var doRangeAroundMedianTimePoint = false;// if false do all time points
@@ -64,6 +75,10 @@ var doRangeAroundMedianTimePoint = false;// if false do all time points
 var resize = false;
 var resizeFactor = 0.5;
 
+var inputPath, inputDir, inputFile, inputFileName;
+var inputImage, inputImageName;
+var inputImageTitle;
+var outputDir;
 
 //Macro BEGIN
 
@@ -71,14 +86,14 @@ execute();
 
 //Macro END
 
+function getInputPath() {
+	inputPath = File.openDialog("Open Image as a Virtual stack");
+	inputDir = File.getDirectory(inputPath);
+	inputFile = File.getName(inputPath);
+	inputFileName = File.getNameWithoutExtension(inputPath);
+}
 
 function execute() {
-/*
-	if (!getDirs()) {
-		print("Aborted (no input or output folder selected)");
-		return;
-	}
-*/
 	print("\\Clear");
 	close("*");
 /*
@@ -95,10 +110,19 @@ function execute() {
 	print("dir3 = "+dir3);
 	print("cropRoisImagesDir = "+cropRoisImagesDir);
 */
-	waitForUser("Open image in virtual mode,\n"+
-	"Select channel in which draw Crop-Rois or set Composite mode,\n"+
-	"Set Brightness and Contrast or Color Balance");
-	if (nImages<1) {showMessage("Macro aborted"); return;}
+	getInputPath();
+	print("\ninputDir = "+inputDir);
+	print("inputFile = "+inputFile);
+	print("inputFileName = "+inputFileName);
+	
+	outputDir = getDirectory("Destination Directory ");
+	print("outputDir = "+outputDir);
+
+	open(inputPath);
+	if (nImages<1) {showMessage("No image: Macro aborted"); return;}
+	inputImageTitle = getTitle();
+	print("inputImageTitle : "+inputImageTitle);
+	inputImageTitle = replace(inputImageTitle, "\"", "");
 	imageID = getImageID();
 	Stack.setDisplayMode("composite");
 	Stack.getDimensions(width, height, channels, slices, frames);
@@ -118,27 +142,71 @@ function execute() {
 	roiManager("reset");
 	setTool("rectangle");
 	nmax = 20;
-	i=0;
+
+	previousMinC=1; previousMinZ=1; previousMinT=1;
+	previousMaxC=channels; previousMaxZ=slices; previousMaxT=frames;
+	Stack.setPosition(previousMinC, previousMinZ, previousMinT);
 	makeRectangle(3*width/8, 3*height/8, width/4, height/4);
+	i=0;
 	while (true) {
 		if (++i > nmax) break;
 		if (isKeyDown("shift")) break;
 		addRegionToManager();
 	}
-	close();
+	//close();
 	roiManager("deselect");
+	roiManager("save", outputDir+inputImageTitle+"_Crop-Rois.zip");
+	
+//Process Crop-Rois from Roi Manager
+	nregions = roiManager("count")/2;//each region is defined by 2 Rois
 	//utiliser le nom du fichier ouvert avec Bioformat
 	//Probleme: comment recuperer l'indice de la position ouverte en mode virtuel
+//Open image to be cropped
+/*
 	run("BDP2 Open Bio-Formats...",
 		"viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true "+
 		"file=C:\\Users_Data\\Celine\\20180627_partie\\test-4.nd seriesindex=0");
+*/
+//	Close virtual input image and Replace with a real one of width=1, height=1
+//	to get Roi coordinates
+close();//close image used for Crop-Rois drawing
+	newImage("Tmp", "8-bit", width, height, 1);
+	//newImage("Tmp", "8-bit", 1, 1, 1);//works also
+	
+	tmpid = getImageID();
+	for (r=0; r<nregions; r++) {
+		print("");
+		//i = 2*r;
+		roiManager("select", 2*r);
+		Roi.getBounds(minx, miny, w, h);
+		//Roi.getPosition(channel, slice, frame);
+		Roi.getPosition(mincPlus1, minzPlus1, mintPlus1);
+		minc = mincPlus1-1;
+		minz = minzPlus1-1;
+		mint = mintPlus1-1;
+		print("minx="+minx+"  miny="+miny+"  minz="+minz+"  minc="+minc+"  mint="+mint);
+
+		roiManager("select", 2*r+1);
+		Roi.getPosition(maxcPlus1, maxzPlus1, maxtPlus1);
+		maxc = maxcPlus1-1;
+		maxz = maxzPlus1-1;
+		maxt = maxtPlus1-1;
+		maxx = minx+w;
+		maxy = miny+h;
+		print("maxx="+maxx+"  maxy="+maxy+"  maxz="+maxz+"  maxc="+maxc+"  maxt="+maxt);
+	}
+//	selectImage(tmpid);
+//	close();
 }
 
 function addRegionToManager() {
 //region begin
-	waitForUser("Select first Slice and Frame of region and draw it");
+	Stack.setPosition(previousMinC, previousMinZ, previousMinT);
+	waitForUser("Draw a rectangle, Select 1st Slice, Channel and Frame\n"+
+		"Press OK to validate");
 	Stack.getPosition(channel, slice, frame);
-	Roi.setPosition(0, slice, frame);
+	Roi.setPosition(channel, slice, frame);
+	previousMinC=channel; previousMinZ=slice; previousMinT=frame;
 	roiManager("add");
 	roiManager("select", roiManager("count")-1);
 	roiNum = (roiManager("count")-1)/2 + 1;
@@ -148,14 +216,14 @@ function addRegionToManager() {
 	roiManager("Set Color", "green");
 	roiManager("Set Line Width", 0);
 //region end
-	roiManager("select", roiManager("count")-1);
 	roiManager("deselect");
-	//run("Scale... ", "x=0.9 y=0.9 centered");
+	Stack.setPosition(previousMaxC, previousMaxZ, previousMaxT);
 	waitForUser("Select last Slice and Frame of region\n"+
 		"DO NOT REMOVE ROI\n"+
-		"Press \"Shift\" key while \"OK\" to stop");
+		"Press OK to validate\nPress Shift-OK to finish");
 	Stack.getPosition(channel, slice, frame);
-	Roi.setPosition(0, slice, frame);
+	Roi.setPosition(channel, slice, frame);
+	previousMaxC=channel; previousMaxZ=slice; previousMaxT=frame;
 	roiManager("add");
 	roiManager("select", roiManager("count")-1);
 	roiManager("Rename", roiNumStr+"_END");
