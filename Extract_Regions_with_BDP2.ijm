@@ -1,8 +1,8 @@
-/**
- * Extract_Regions_with_BDP2_
- * Author: Marcel Boeglin
+/** Extract_Regions_with_BDP2_
+ * Authors: 
+ * Marcel Boeglin: boeglin@igbmc.fr
+ * Bertand Vernay: vernayb@igbmc.fr
  * May 2021
- * boeglin@igbmc.fr
  */
 
 /**
@@ -32,8 +32,8 @@
 
 
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 06;
-var copyRight = "Author: Marcel Boeglin - May 2021";
+var version = 07;
+var copyRight = "Authors: Marcel Boeglin - Bertrand Vernay,  May 2021";
 var email = "e-mail: boeglin@igbmc.fr";
 
 var width, height, channels, slices, frames;
