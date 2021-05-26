@@ -1,11 +1,13 @@
 /*
 //from BDP recorder:
-run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file=C:\\Users_Data\\Celine\\20180627_partie\\test-4.nd seriesindex=0");
+run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file=D:\\Extract_Regions_with_BigDataProcessor2\\Celine_20180627_partie\\test-4.nd seriesindex=0");
 run("BDP2 Crop...", "inputimage=[test-4] outputimagename=[test-4-crop] viewingmodality=[Show in current viewer] minx=24 miny=90 minz=0 minc=0 mint=0 maxx=325 maxy=507 maxz=10 maxc=1 maxt=7 ");
 run("BDP2 Save As...", "inputimage=[test-4-crop] directory=[C:\\Users_Data\\Celine\\20180627_partie_XMLHDF5_crop\\] numiothreads=1 numprocessingthreads=4 filetype=[BigDataViewerXMLHDF5] saveprojections=false savevolumes=true tiffcompression=[None] tstart=0 tend=7 ");
 //record other viewing modalities;
 //loop over seriesindex from 0 to npositions-1
 */
+
+//run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file=D:\\Extract_Regions_with_BigDataProcessor2\\Celine_20180627_partie\\test-4.nd seriesindex=0");
 
 /**
  * Procedure:
@@ -33,7 +35,7 @@ run("BDP2 Save As...", "inputimage=[test-4-crop] directory=[C:\\Users_Data\\Celi
  */
 
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 01;
+var version = 03;
 var copyRight = "Author: Marcel Boeglin - May 2021";
 var email = "e-mail: boeglin@igbmc.fr";
 
@@ -82,6 +84,7 @@ var outputDir;
 
 //Macro BEGIN
 
+run("Bio-Formats Macro Extensions");
 execute();
 
 //Macro END
@@ -157,22 +160,29 @@ function execute() {
 	roiManager("deselect");
 	roiManager("save", outputDir+inputImageTitle+"_Crop-Rois.zip");
 	
-//Process Crop-Rois from Roi Manager
+	//Process Crop-Rois from Roi Manager
 	nregions = roiManager("count")/2;//each region is defined by 2 Rois
 	//utiliser le nom du fichier ouvert avec Bioformat
 	//Probleme: comment recuperer l'indice de la position ouverte en mode virtuel
-//Open image to be cropped
+
+/*
+	//Open image to be cropped
+	//setBatchMode(false);
+	run("BDP2 Open Bio-Formats...",
+		"viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true "+
+		"file=D:\\Extract_Regions_with_BigDataProcessor2\\Celine_20180627_partie\\test-4.nd"+
+		" seriesindex=0");
+*/
 /*
 	run("BDP2 Open Bio-Formats...",
 		"viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true "+
-		"file=C:\\Users_Data\\Celine\\20180627_partie\\test-4.nd seriesindex=0");
+		"["+inputPath+"] seriesindex=0");
 */
-//	Close virtual input image and Replace with a real one of width=1, height=1
-//	to get Roi coordinates
-close();//close image used for Crop-Rois drawing
-	newImage("Tmp", "8-bit", width, height, 1);
-	//newImage("Tmp", "8-bit", 1, 1, 1);//works also
-	
+	//Close virtual input image and Replace with a real image having 1 slice,
+	//width=1, height=1 to get Roi coordinates
+	close();//close image used for Crop-Rois drawing
+	//newImage("Tmp", "8-bit", width, height, 1);
+	newImage("Tmp", "8-bit", 1, 1, 1);//works also
 	tmpid = getImageID();
 	for (r=0; r<nregions; r++) {
 		print("");
@@ -195,8 +205,39 @@ close();//close image used for Crop-Rois drawing
 		maxy = miny+h;
 		print("maxx="+maxx+"  maxy="+maxy+"  maxz="+maxz+"  maxc="+maxc+"  maxt="+maxt);
 	}
-//	selectImage(tmpid);
-//	close();
+	selectImage(tmpid);
+	close();
+
+print("inputPath");
+print(inputPath);
+
+//OK, mais comment ouvrir une serie autre que 0
+//on peut le deduire du titre de l'image et du fichier .nd
+run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file="
+	+inputPath+" seriesindex=0");//OK, mais comment ouvrir une serie autre que 0
+}
+
+//run("Bio-Formats Importer", "open=&path color_mode=Default view=Hyperstack stack_order=XYCZT series_"+j+1);
+//run("Bio-Formats", "[open=D:/Extract_Regions_with_BigDataProcessor2/Celine_20180627_partie/test-4.nd] color_mode=Default view=Hyperstack stack_order=XYCZT series_1");
+//run("Bio-Formats", "open=D:/Extract_Regions_with_BigDataProcessor2/Celine_20180627_partie/test-4.nd color_mode=Default view=Hyperstack stack_order=XYCZT use_virtual_stack series_0");//Problem
+//run("Bio-Formats", "open=D:/Extract_Regions_with_BigDataProcessor2/Celine_20180627_partie/test-4.nd color_mode=Custom rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT use_virtual_stack series_1 series_0_channel_0_red=0 series_0_channel_0_green=255 series_0_channel_0_blue=0 series_0_channel_1_red=255 series_0_channel_1_green=0 series_0_channel_1_blue=0");
+//probleme SCI java
+//var ; initializeSciJavaParameters ( ) ; run ( "Bio-Formats" , "open=D:/Extract_Regions_with_BigDataProcessor2/Celine_20...
+function chooseImageToProcess(path) {
+	Ext.setId(path);
+	Ext.getCurrentFile(fileToProcess);
+	Ext.getSeriesCount(seriesCount); // this gets the number of series
+	if (seriesCount==1) 
+	print("Processing the file = " + fileToProcess);
+	for (j=0; j<seriesCount; j++) {
+        Ext.setSeries(j);
+        Ext.getSeriesName(seriesName);
+		run("Bio-Formats Importer", "open=&path color_mode=Default view=Hyperstack stack_order=XYCZT series_"+j+1); 
+		fileNameWithoutExtension = File.nameWithoutExtension;
+		//print(fileNameWithoutExtension);
+		saveAs("tiff", dir2+fileNameWithoutExtension+"_"+seriesName+".tif");
+		run("Close");
+	}
 }
 
 function addRegionToManager() {
