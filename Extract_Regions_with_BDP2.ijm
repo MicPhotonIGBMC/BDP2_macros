@@ -1,13 +1,10 @@
-/*
-//from BDP recorder:
-run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file=D:\\Extract_Regions_with_BigDataProcessor2\\Celine_20180627_partie\\test-4.nd seriesindex=0");
-run("BDP2 Crop...", "inputimage=[test-4] outputimagename=[test-4-crop] viewingmodality=[Show in current viewer] minx=24 miny=90 minz=0 minc=0 mint=0 maxx=325 maxy=507 maxz=10 maxc=1 maxt=7 ");
-run("BDP2 Save As...", "inputimage=[test-4-crop] directory=[C:\\Users_Data\\Celine\\20180627_partie_XMLHDF5_crop\\] numiothreads=1 numprocessingthreads=4 filetype=[BigDataViewerXMLHDF5] saveprojections=false savevolumes=true tiffcompression=[None] tstart=0 tend=7 ");
-//record other viewing modalities;
-//loop over seriesindex from 0 to npositions-1
-*/
 
-//run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file=D:\\Extract_Regions_with_BigDataProcessor2\\Celine_20180627_partie\\test-4.nd seriesindex=0");
+/**
+ * Extract_Regions_with_BDP2_
+ * Author: Marcel Boeglin
+ * May 2021
+ * boeglin@igbmc.fr
+ */
 
 /**
  * Procedure:
@@ -34,8 +31,10 @@ run("BDP2 Save As...", "inputimage=[test-4-crop] directory=[C:\\Users_Data\\Celi
  *    - close crop
  */
 
+//Commande pour fermer unne image ouverte dans BDP2 ???
+
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 03;
+var version = 04;
 var copyRight = "Author: Marcel Boeglin - May 2021";
 var email = "e-mail: boeglin@igbmc.fr";
 
@@ -57,7 +56,7 @@ var width, height, channels, slices, frames;
 var previousMinC, previousMinZ, previousMinT;
 var previousMaxC, previousMaxZ, previousMaxT;
 
-var minx=0, miny=0, minz=0, minc=0, mint=0;
+var minx, miny, minz, minc, mint;
 var maxx, maxy, maxz, maxc, maxt;
 
 //inutile
@@ -79,15 +78,20 @@ var resizeFactor = 0.5;
 
 var inputPath, inputDir, inputFile, inputFileName;
 var inputImage, inputImageName;
+var isMultiSeries;
+var isMetamorph;
 var inputImageTitle;
 var outputDir;
+
+var seriesindex;
 
 //Macro BEGIN
 
 run("Bio-Formats Macro Extensions");
 execute();
-
+closeMemoryMonitor();
 //Macro END
+
 
 function getInputPath() {
 	inputPath = File.openDialog("Open Image as a Virtual stack");
@@ -117,11 +121,17 @@ function execute() {
 	print("\ninputDir = "+inputDir);
 	print("inputFile = "+inputFile);
 	print("inputFileName = "+inputFileName);
+	isMetamorph = endsWith(inputFile, ".nd");
+	print("isMetamorph = "+isMetamorph);
 	
 	outputDir = getDirectory("Destination Directory ");
 	print("outputDir = "+outputDir);
-
+	//if (launchMemory)
+	launchMemoryMonitor();
 	open(inputPath);
+	imageID = getImageID();
+	//if (isMetamorph)
+		seriesindex = getSeriesIndex(imageID);
 	if (nImages<1) {showMessage("No image: Macro aborted"); return;}
 	inputImageTitle = getTitle();
 	print("inputImageTitle : "+inputImageTitle);
@@ -129,15 +139,10 @@ function execute() {
 	imageID = getImageID();
 	Stack.setDisplayMode("composite");
 	Stack.getDimensions(width, height, channels, slices, frames);
-	s = slices/2;
-	if (s<1) s=1;
-	Stack.setSlice(s);
-	t = frames/2;
-	if (t<1) t=1;
-	Stack.setFrame(t);
+	s = slices/2; if (s<1) s=1; Stack.setSlice(s);
+	t = frames/2; if (t<1) t=1; Stack.setFrame(t);
 	for (c=1; c<=channels; c++) {
-		Stack.setChannel(c);
-		run("Enhance Contrast", "saturated=0.35");
+		Stack.setChannel(c); run("Enhance Contrast", "saturated=0.25");
 	}
 	roiManager("Associate", "false");
 	roiManager("Centered", "false");
@@ -145,7 +150,6 @@ function execute() {
 	roiManager("reset");
 	setTool("rectangle");
 	nmax = 20;
-
 	previousMinC=1; previousMinZ=1; previousMinT=1;
 	previousMaxC=channels; previousMaxZ=slices; previousMaxT=frames;
 	Stack.setPosition(previousMinC, previousMinZ, previousMinT);
@@ -165,64 +169,100 @@ function execute() {
 	//utiliser le nom du fichier ouvert avec Bioformat
 	//Probleme: comment recuperer l'indice de la position ouverte en mode virtuel
 
-/*
-	//Open image to be cropped
-	//setBatchMode(false);
-	run("BDP2 Open Bio-Formats...",
-		"viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true "+
-		"file=D:\\Extract_Regions_with_BigDataProcessor2\\Celine_20180627_partie\\test-4.nd"+
-		" seriesindex=0");
-*/
-/*
-	run("BDP2 Open Bio-Formats...",
-		"viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true "+
-		"["+inputPath+"] seriesindex=0");
-*/
 	//Close virtual input image and Replace with a real image having 1 slice,
 	//width=1, height=1 to get Roi coordinates
 	close();//close image used for Crop-Rois drawing
-	//newImage("Tmp", "8-bit", width, height, 1);
-	newImage("Tmp", "8-bit", 1, 1, 1);//works also
+	newImage("Tmp", "8-bit", width, height, 1);//works also
 	tmpid = getImageID();
+	size = nregions;
+	minx = newArray(size); miny = newArray(size); minz = newArray(size);
+	minc = newArray(size); mint = newArray(size);
+	maxx = newArray(size); maxy = newArray(size); maxz = newArray(size);
+	maxc = newArray(size); maxt = newArray(size);
 	for (r=0; r<nregions; r++) {
 		print("");
 		//i = 2*r;
 		roiManager("select", 2*r);
-		Roi.getBounds(minx, miny, w, h);
+		Roi.getBounds(minX, minY, w, h);
+		print("minX = "+minX);
+		print("minY = "+minY);
+		//Roi.getBounds(minx[r], miny[r], w, h);
+		minx[r] = minX; miny[r] = minY;
 		//Roi.getPosition(channel, slice, frame);
 		Roi.getPosition(mincPlus1, minzPlus1, mintPlus1);
-		minc = mincPlus1-1;
-		minz = minzPlus1-1;
-		mint = mintPlus1-1;
-		print("minx="+minx+"  miny="+miny+"  minz="+minz+"  minc="+minc+"  mint="+mint);
+		minc[r] = mincPlus1-1;
+		minz[r] = minzPlus1-1;
+		mint[r] = mintPlus1-1;
+		print("minx="+minx[r]+"  miny="+miny[r]+"  minz="+minz[r]+
+			"  minc="+minc[r]+"  mint="+mint[r]);
 
 		roiManager("select", 2*r+1);
 		Roi.getPosition(maxcPlus1, maxzPlus1, maxtPlus1);
-		maxc = maxcPlus1-1;
-		maxz = maxzPlus1-1;
-		maxt = maxtPlus1-1;
-		maxx = minx+w;
-		maxy = miny+h;
-		print("maxx="+maxx+"  maxy="+maxy+"  maxz="+maxz+"  maxc="+maxc+"  maxt="+maxt);
+		maxc[r] = maxcPlus1-1;
+		maxz[r] = maxzPlus1-1;
+		maxt[r] = maxtPlus1-1;
+		maxx[r] = minx[r]+w;
+		maxy[r] = miny[r]+h;
+		print("maxx="+maxx[r]+"  maxy="+maxy[r]+"  maxz="+maxz[r]+
+			"  maxc="+maxc[r]+"  maxt="+maxt[r]);
 	}
 	selectImage(tmpid);
 	close();
 
-print("inputPath");
-print(inputPath);
+	print("inputPath");
+	print(inputPath);
 
-//OK, mais comment ouvrir une serie autre que 0
-//on peut le deduire du titre de l'image et du fichier .nd
-run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file="
-	+inputPath+" seriesindex=0");//OK, mais comment ouvrir une serie autre que 0
+//	Desactivation temporaire
+	run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file="
+	+inputPath+" seriesindex="+seriesindex);
+
+	//inputimage = getTitle();//not a ImageJ image
+	inputimage = getInfo("window.title");//marche pas
+	inputimage = inputFileName;//nom du fichier nd
+	print("inputimage = "+inputimage);
+
+	for (r=0; r<nregions; r++) {
+		print("minx="+minx[r]+"  miny="+miny[r]+"  minz="+minz[r]+
+			"  minc="+minc[r]+"  mint="+mint[r]);
+
+
+		outputimagename = inputImageTitle+"_Crop_"+r;
+		run("BDP2 Crop...", "inputimage=["+inputimage+
+			"] outputimagename=["+outputimagename+
+			"] viewingmodality=[Show in new viewer]"+
+			" minx="+minx[r]+" miny="+miny[r]+" minz="+minz[r]+
+				" minc="+minc[r]+" mint="+mint[r]+""+
+			" maxx="+maxx[r]+" maxy="+maxy[r]+" maxz="+maxz[r]+
+				" maxc="+maxc[r]+" maxt="+maxt[r]+" ");
+		//run("BDP2 Save As...", "inputimage=[test-4-crop] directory=[C:\\Users_Data\\Celine\\20180627_partie_XMLHDF5_crop\\] numiothreads=1 numprocessingthreads=4 filetype=[BigDataViewerXMLHDF5] saveprojections=false savevolumes=true tiffcompression=[None] tstart=0 tend=7 ");
+		run("BDP2 Save As...", "inputimage=["+outputimagename+
+			"] directory=["+outputDir+"] numiothreads=1 numprocessingthreads=4"+
+			" filetype=[BigDataViewerXMLHDF5] saveprojections=false"+
+			" savevolumes=true tiffcompression=[None]"+
+			" tstart="+mint[r]+" tend="+mint[r]);
+	}
 }
 
-//run("Bio-Formats Importer", "open=&path color_mode=Default view=Hyperstack stack_order=XYCZT series_"+j+1);
-//run("Bio-Formats", "[open=D:/Extract_Regions_with_BigDataProcessor2/Celine_20180627_partie/test-4.nd] color_mode=Default view=Hyperstack stack_order=XYCZT series_1");
-//run("Bio-Formats", "open=D:/Extract_Regions_with_BigDataProcessor2/Celine_20180627_partie/test-4.nd color_mode=Default view=Hyperstack stack_order=XYCZT use_virtual_stack series_0");//Problem
-//run("Bio-Formats", "open=D:/Extract_Regions_with_BigDataProcessor2/Celine_20180627_partie/test-4.nd color_mode=Custom rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT use_virtual_stack series_1 series_0_channel_0_red=0 series_0_channel_0_green=255 series_0_channel_0_blue=0 series_0_channel_1_red=255 series_0_channel_1_green=0 series_0_channel_1_blue=0");
-//probleme SCI java
-//var ; initializeSciJavaParameters ( ) ; run ( "Bio-Formats" , "open=D:/Extract_Regions_with_BigDataProcessor2/Celine_20...
+function getSeriesIndex(imageID) {
+	position = "0";
+	selectImage(imageID);
+	title = getTitle();
+	if (isMetamorph) {
+		index = -1;
+		if (indexOf(title, "Stage") >=0)
+			index = indexOf(title, "Stage");
+		str = substring(title, index);
+		print("str = "+str);
+		index2 = indexOf(str, " \"");
+		print("index2 = "+index2);
+		//position = substring(str, 0+8, index2);
+		position = substring(str, 5, index2);
+		print("position = "+position);
+		return parseInt(position) - 1;
+	}
+	return parseInt(position);
+}
+
 function chooseImageToProcess(path) {
 	Ext.setId(path);
 	Ext.getCurrentFile(fileToProcess);
@@ -281,6 +321,7 @@ function macroDescription() {
 
 function launchMemoryMonitor() {
 	if (isOpen("Memory")) return;
+	pluginsDir = getDirectory("plugins");
 	if (findFile(pluginsDir, "MemoryMonitor_Launcher.jar"))
 		run("MemoryMonitor Launcher");
 	else
@@ -397,129 +438,7 @@ function findFile(dir, filename) {
 	return false;
 }
 
-function prefixLess(roiImages) {
-	n = roiImages.length;
-	list2 = newArray(n);
-	for (i=0; i<n; i++) {
-		s = roiImages[i];
-		for (j=0; j<projPrefixes.length; j++) {
-			prefix  = projPrefixes[j];
-			if (startsWith(s, prefix)) {
-				list2[i] = substring(s, lengthOf(prefix), lengthOf(s));
-				break;
-			}
-		}
-	}
-	return list2;
-}
 
-/** Adds ROIs from roiImage corresponding to current series and position
-	to ROI Manager.
-	roiImages: list of filnames in folder dir1+"ImagesWithRois"
-	seriesName: name of currently processed series
-	channels: array of current series channel-strings. channel-string may be ""
-	position: name of currently processed position: "_s1", "_s2", etc
-	In case of several images with rois matching a given series or position
-	the used one is first in the 'prefixLessRoiImages' list */
-function getRoisFromImage(prefixLessRoiImages, seriesName, channels, position) {
-	print("getRoisFromImage(roiImages, "+seriesName+
-			", channels, position = "+position+")");
-	print("seriesName: "+seriesName);
-	print("position = "+position);
-	roiManager("reset");
-	for (i=0; i<prefixLessRoiImages.length; i++) {
-		prefixLessRoiImage = prefixLessRoiImages[i];
-		if (!startsWith(prefixLessRoiImage, seriesName)) continue;
-		if (indexOf(prefixLessRoiImage, position)<0) continue;
-		pos = getPositionString(prefixLessRoiImage);
-		if (pos!=position) continue;
-		seriesLessName = substring(prefixLessRoiImage, lengthOf(seriesName), 
-				lengthOf(prefixLessRoiImage));
-		for (j=0; j<channels.length; j++) {
-			print("channels["+j+"] = "+channels[j]);
-			channel = channels[j];
-			if (channel!="" && !startsWith(seriesLessName, channel))
-				continue;
-			channelLessName = substring(seriesLessName, lengthOf(channel),
-					lengthOf(seriesLessName));
-			if (startsWith(channelLessName, position)) {
-				print("getting rois from\n"+roiImages[i]+"\n ");
-				open(dir1+"ImagesWithRois"+File.separator+roiImages[i]);
-				run("To ROI Manager");
-				close();
-				return true;
-			}
-		}
-	}
-	return false;
-}
-
-function getPositionString(fileName) {
-	if (matches(fileName, ".*_s\\d{1,3}.*")) {
-		str = substring(fileName, lastIndexOf(fileName, "_s"));
-		//print("str = "+str);
-		if (indexOf(str, ".")>=0)
-			str = substring(str, 0, lastIndexOf(str, "."));
-		//print("str = "+str);
-		if (matches(str, ".*_t\\d{1,5}.*"))
-			return substring(str, 0, lastIndexOf(str, "_t"));
-	}
-	return "";
-}
-
-function reduceSeriesToRoiImages() {
-	print("\n\nreduceSeriesToRoiImages()");
-	nSeries = seriesNames.length;
-	seriesNames2 = newArray(nSeries);
-	n2 = 0;
-	for (j=0; j<nSeries; j++) {
-		seriesName = seriesNames[j];
-		for (i=0; i<roiImages.length; i++) {
-			prefixLessName = prefixLessRoiImages[i];
-			print("prefixLessName = "+prefixLessName);
-			if (!startsWith(prefixLessName, seriesName)) continue;
-			if (belongsToSeries(prefixLessName, seriesName)) {
-				seriesNames2[n2++] = seriesName;
-				break;
-			}
-		}
-	}
-	//print("nSeries2 = "+n2);
-	return Array.trim(seriesNames2, n2);
-}
-
-
-function belongsToSeries(prefixLessRoiImageName, seriesName) {
-	seriesLessName = substring(prefixLessRoiImageName, lengthOf(seriesName), 
-			lengthOf(prefixLessRoiImageName));
-	print("seriesLessName = "+seriesLessName);
-	if (startsWith(seriesLessName, "_w")) return true;
-	if (startsWith(seriesLessName, "_s")) return true;
-	if (startsWith(seriesLessName, "_t")) return true;
-	if (startsWith(toLowerCase(seriesLessName), ".tif")) return true;
-	if (startsWith(toLowerCase(seriesLessName), ".stk")) return true;
-	return false;
-}
-
-/* Returns array of TIF and STK imagenames in imagesWithRoisDir */
-function roiImageList(imagesWithRoisDir) {
-	l = getFileList(imagesWithRoisDir);
-	nf = l.length;
-	l2 = newArray(nf);
-	n = 0;
-	for (i=0; i<nf; i++) {
-		f = l[i];
-		if (File.isDirectory(f)) continue;
-		if (!endsWith(toUpperCase(f), ".TIF") &&
-			!endsWith(toUpperCase(f), ".STK")) continue;
-		open(imagesWithRoisDir+File.separator+f);
-		nr = Overlay.size;
-		close();
-		if (nr<1) continue;
-		l2[n++] = f;
-	}
-	return Array.trim(l2, n);
-}
 
 //80 chars:
 //23456789 123456789 123456789 123456789 123456789 123456789 123456789 1234567890
