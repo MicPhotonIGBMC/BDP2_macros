@@ -1,41 +1,68 @@
 /** Extract_Regions_with_BDP2_
- * Author: 
- * Marcel Boeglin: boeglin@igbmc.fr
- * May 2021
+ * Marcel Boeglin 
+ * boeglin@igbmc.fr
+ * May - July 2021
  */
+
+// 2021-07-16 : BigDataProcessor2 no longer working with ND files (.nd)
 
 /**
- * Procedure:
- * 1. Open image as a virtual stack;
- * 2. Multi-Channel images: select best channel to choose regions to be extracted 
- *    or activate Composite mode;
- * 3. Infinite loop of:
- *    Draw a rectangle surounding the region to be extracted;
- *    WaitForUser 1:
- * 	  Select first time-point and z-position to be extracted;
- *    The Begin Roi is automatically added to Roi Manager
- *    WaitForUser 2:
- *    Select last time-point and z-position to be extracted;
- *    The End Roi is automatically added to Roi Manager
- * 4. Break loop by pressing "OK" with "Shift" key down
- * 5. Close virtual image;
- * 6. Save RoiSet to output folder
- * 7. Open image with BigDataProcessor2
- * 8. For each Roi couple in Roi Manager:
- *    - get xmin, ymin, zmin, cmin, tmin, xmax, ymax, zmax, cmax tmax
- *    - run("BDP2 Crop...", "inputimage=..., xmin, ymin, zmin, cmin tmin, 
- *      xmax, ymax, zmax, cmax, tmax); in a new window
- *    - save crop to output folder
- *    - close crop viewer (not working)
- * 9. Close input image viewer (not working)
+Extracts regions from images that are too big to be opened in non virtual
+mode in Fiji:
+1. Choose input format and working-mode:
+   Check "¤ Crop whole CZT domain" to crop all Channels, Z and T (Simple mode);
+   Otherwise (Full mode), you can define different C, Z and T begins and ends for
+   each crop.
+2. Choose input image and output folder;
+3. If Bio-formats Dialog box opens, check "¤ Use virtual stack";
+4. Regions creation loop:
+   ¤ Full mode:
+     - draw a rectangle, select first slice, channel and time-point;
+     - validate by OK;
+     - select last slice, channel and timepoint;
+       validate by OK to define another region;
+                or SHIFT-OK to terminate;
+   ¤ Simple mode :
+     - draw a rectangle;
+     - validate by OK to define another region;
+                or SHIFT-OK to terminate;
+5. Crop-ROIs are saved as a zip to output folder;
+6. The image is opened using BigDataProcessor2;
+7. Each region is cropped in a new viewer and saved to output folder;
+
+Tested with following input types:
+ - Metamorph Multi Dimensional series (input file: .nd);
+ - Leica Image Files (.lif);
+ - Zeiss (.czi) pyramidal images need the crop domains to be defined in the
+   highest resolution image (#1). Each crop results in pyramidal image file
+   containing a number of resolutions depending on the XY size of the crop- 
+   regions. The resolution sequence of output images is 1, 1/2, 1/4, ...;
+ - Single plane (Z*C*T = 1) TIFFs, PNG.
+
+Notes:
+1. Termination the crop-regions creation:
+   Keep SHIFT key down until the image closes to avoid creation of a new region.
+2. The macro launches the "Memory" window if not open and "MemoryMonitor_Launcher.jar" 
+   is found in the "plugins" folder, works without otherwise.
+   "MemoryMonitor_Launcher.jar" can be downloaded here:
+   https://github.com/MicPhotonIGBMC/ImageJ-Macros/blob/master/Metamorph%20Utilities/MemoryMonitor_Launcher.jar
  */
 
-// PROBLEM with LIF Timelapse: BDP2 opens only first time-point
-
+/* Known problems:
+ * 1.
+ * In case of multiple series in the input file, the macro may process another series
+ * than the one selected in the Bio-Formats window.
+ * This is due to the fact that the series-names in Bio-Formats may differ strongly 
+ * according to the experiment type, leading to a false series-index determination
+ * 2.
+ * BDP2 does not open properly time-series from LIF files:
+ * generally opens only the first time-point sometimes repeated in a few frames
+ *
+*/
 var macroname = "Extract_Regions_with_BDP2_";
-var version = 17;
-var copyRight = "Author: Marcel Boeglin";
-var email = "e-mail: boeglin@igbmc.fr";
+var version = 25;
+var author = "Marcel Boeglin";
+var email = "boeglin@igbmc.fr";
 
 var width, height, channels, slices, frames;
 var stackSize;
@@ -43,30 +70,36 @@ var stackSize;
 var previousMinC, previousMinZ, previousMinT;
 var previousMaxC, previousMaxZ, previousMaxT;
 
+var crop_whole_CZT_domain = true;
+
 var minx, miny, minz, minc, mint;
 var maxx, maxy, maxz, maxc, maxt;
 
 var memoryWasOpen = isOpen("Memory");
-var inputFormats = newArray("METAMORPH, CZI, LIF, HDF5 ...",
-					"TIFF stack",
-					"Single Plane TIFF");
-var inputFormat = "METAMORPH, CZI, LIF, HDF5 ...";
-var isTIFF;
-var virtualOneDimensionalTIFF;
-var virtualTIFFstack;
-var otherInputFormat = true;
+
+var inputFormats = newArray("nd, CZI, LIF, HDF5 ...",
+							"TIFF stack",
+							"Single plane TIFF");
+var inputFormat = "nd, CZI, LIF, HDF5 ...";
 var inputDir, inputFileName, extension, inputPath;
 var inputImage, inputImageName;
-var isMultiSeries;
 var isMetamorph;
-var isPyramidal;
 var inputImageTitle;
 var outputDir;
 var seriesindex;
+var seriesName;
+
+var BigDataViewerAlreadyOpen = true;
 
 //Macro BEGIN
 
+IJ.redirectErrorMessages();
 run("Bio-Formats Macro Extensions");
+
+roiManager("Associate", "true");
+roiManager("Centered", "false");
+roiManager("UseNames", "false");
+
 execute();
 logPath = outputDir+inputImageTitle+"_LOG.txt";
 selectWindow("Log");
@@ -76,33 +109,36 @@ closeMemoryMonitor();
 
 //Macro END
 
-function getInputFormat() {
-	Dialog.create("Input format");
-	Dialog.addChoice(inputFormat, inputFormats, otherInputFormat);
+
+function getInputFormat_And_Working_Mode() {
+	Dialog.create("Input format and working mode");
+//	Dialog.addCheckbox("BigDataViewer is already open", BigDataViewerAlreadyOpen);
+//	BDP2 opens a new viewer even if "viewingmodality=[Show in current viewer] "
+	Dialog.addChoice(inputFormat, inputFormats, inputFormat);
+	Dialog.addCheckbox("Crop_whole_CZT_domain", crop_whole_CZT_domain);
 	Dialog.show();
+//	BigDataViewerAlreadyOpen = Dialog.getCheckbox();
 	inputFormat = Dialog.getChoice();
+	crop_whole_CZT_domain = Dialog.getCheckbox();
+	print("\ninputFormat = "+inputFormat);
+	print("crop_whole_CZT_domain = "+crop_whole_CZT_domain);
 }
 
 function getInputPath()  {
 	inputPath = File.openDialog("Open Image as a Virtual stack");
 	inputDir = File.getDirectory(inputPath);
-//	inputDir = duplicateBackSlashes(inputDir);
 	inputFileName = File.getNameWithoutExtension(inputPath);
 	extension = substring(inputPath, lastIndexOf(inputPath, "."));
 }
 
-function duplicateBackSlashes(string) {
-	str = replace(string, "\\", "\\\\");
-	return str;
-}
-
 function execute() {
-	getInputFormat();
 	print("\\Clear");
+	getInputFormat_And_Working_Mode();
+	closeExceptionWindows();
 	close("*");
 	print(macroname+version+".ijm");
 	print(macroDescription());
-	print(copyRight);
+	print(author);
 	print(email);
 	getInputPath();
 	print("\ninputDir = "+inputDir);
@@ -111,11 +147,8 @@ function execute() {
 	isMetamorph = (extension==".nd");
 	print("isMetamorph = "+isMetamorph);
 	lowercaseExtension = toLowerCase(extension);
-	isTIFF = (extension==".tif" || extension==".zip");
 	outputDir = getDirectory("Destination Directory ");
 	print("outputDir = "+outputDir);
-
-	analyzeSeriesNames(inputDir, inputFileName+extension);
 
 	msg = "\nPyramidal images:\n"+
 		"Open highest resolution:"+
@@ -127,33 +160,71 @@ function execute() {
 	launchMemoryMonitor();
 
 	//Open image
-	if (inputFormat=="METAMORPH, CZI, LIF, HDF5 ...") {
-		open(inputPath);
+	if (inputFormat=="nd, CZI, LIF, HDF5 ...") {//MAY FAIL
+		seriesIndex = 0;
+		open(inputPath);//opens Bio-Formats window
+		title = getTitle();
+		print("title = "+title);
+		imageID = getImageID();
+		if (indexOf(title, " - ") >= 0)  {
+			//seriesName = substring(title, lastIndexOf(title, " - ")+3);
+			seriesName = substring(title, indexOf(title, " - ")+3);
+			print("seriesName = "+seriesName);
+			if (isMetamorph) // multiple stage positions
+				seriesindex = getSeriesIndex(imageID);
+			else {
+				seriesindex = findSeriesIndex(inputDir,
+					inputFileName+extension, seriesName);
+			}
+		}
+		//exit;
 	}
 	else if	(inputFormat=="TIFF stack") {
+		//print(extension);
+		if (toLowerCase(extension)==".zip") exit("ZIP files not supported");
 		run("TIFF Virtual Stack...", "open=["+inputPath+"]");
 	}
-	else if	(inputFormat=="Single Plane TIFF") {
+	else if	(inputFormat=="Single plane TIFF") {
+/*
+		print("\ninputDir = "+inputDir);
+		print("inputFileName+extension = "+inputFileName+extension+"\n ");
 		run("Image Sequence...", "select=["+inputDir+"] "+
-			"filter=["+inputFileName+extension+"] count=1 sort use");
-		Stack.getDimensions(w, h, c, d, t);
-		if (c * d * t > 1) {
-			showMessage("1D image required");
-			exit;
-		}
+			" filter=["+inputFileName+extension+"] count=1 sort use");
+		getDimensions(w, h, c, d, t);
+		if (c * d * t > 1) exit("1D image required");
+*/
+		//image title may be image path instead of image name
+		run("Bio-Formats Importer", "open=["+inputDir+inputFileName+extension+"] "+
+			"color_mode=Composite rois_import=[ROI manager] view=Hyperstack "+
+			"stack_order=XYCZT use_virtual_stack series_1");
+	
+		rename(inputFileName+extension);
 	}
-
-
-	if (nImages<1) {showMessage("No image: Macro aborted"); return;}
+	if (nImages<1) exit("No image: Macro aborted");
 	imageID = getImageID();
-	//if (isMetamorph)
+/*
+	if (isMetamorph)
 		seriesindex = getSeriesIndex(imageID);
+	else
+		seriesindex = findSeriesIndex(inputDir, inputFileName+extension, inputImageTitle);
+*/
+//	seriesindex = findSeriesIndex(inputDir, inputFileName+extension, seriesName);
+
 	Stack.getDimensions(width, height, channels, slices, frames);
 	print(width);
 	stackSize = channels*slices*frames;
 	inputImageTitle = getTitle();
+	print("seriesindex : "+seriesindex);
 	print("inputImageTitle : "+inputImageTitle);
+	print("inputFileName+extension : "+inputFileName+extension);
 	inputImageTitle = replace(inputImageTitle, "\"", "");
+	inputImageTitle = replace(inputImageTitle, "/", "-");
+
+	if (inputImageTitle==inputFileName+extension) {
+		//inputImageTitle = seriesName;
+		inputImageTitle += "_"+seriesName;
+	}
+
 	imageID = getImageID();
 	if (channels>1)
 		Stack.setDisplayMode("composite");
@@ -169,16 +240,17 @@ function execute() {
 	roiManager("UseNames", "false");
 	roiManager("reset");
 	setTool("rectangle");
-	nmax = 20;
+	nmax = 40;
 	previousMinC=1; previousMinZ=1; previousMinT=1;
 	previousMaxC=channels; previousMaxZ=slices; previousMaxT=frames;
 	if (stackSize>1)
 		Stack.setPosition(previousMinC, previousMinZ, previousMinT);
 	makeRectangle(3*width/8, 3*height/8, width/4, height/4);
+	Roi.setStrokeColor(0, 255, 0);
 	i=0;
 	while (true) {
 		if (++i > nmax) break;
-		if (isKeyDown("shift")) break;
+		if (isKeyDown("shift\")")) break;
 		addRegionToManager();
 	}
 //	close();
@@ -186,11 +258,22 @@ function execute() {
 	roiManager("save", outputDir+inputImageTitle+"_Crop-Rois.zip");
 	//Process Crop-Rois from Roi Manager
 	nregions = roiManager("count")/2;//each region is defined by 2 Rois
+
+
+//PROBLEMES POTENTIELS : pas les bonnes limites des domaines de Crop
+
+	//ESSAI : ne pas fermer l'image a traiter pour ne pas avoir a 
+	//en creer une autre forcement non virtuelle (PROBLEMEs aleatoires de bornes de crop
 	close();//close image used for Crop-Rois drawing
-	
+
+
+	//IMAGE AUXILIAIRE pour pouvoir afficher les rois (ACTIVER ROI DANS RoiManager NECESSITE UNE IMAGE)
 	//newImage("HyperStack", "8-bit", width, height, 1, 1, 1);//w,h,c,z,t
 	//if false z or t range in output, use command below:
-	newImage("HyperStack", "8-bit", width, height, channels, slices, frames);
+//	newImage("HyperStack", "8-bit", width, height, channels, slices, frames);
+	//newImage("HyperStack", "8-bit", 1, 1, channels, slices, frames);
+	//newImage("HyperStack", "8-bit", width, height, 1, 1, 1);
+	newImage("Untitled", "8-bit", width, height, 1);//ESSAI
 	tmpid = getImageID();
 	size = nregions;
 	minx = newArray(size); miny = newArray(size); minz = newArray(size);
@@ -225,29 +308,34 @@ function execute() {
 	}
 	selectImage(tmpid);
 	close();
-
 	print("inputPath:");
 	print(inputPath);
+/*
+	print("\nBigDataViewerAlreadyOpen = "+BigDataViewerAlreadyOpen);
+	if (BigDataViewerAlreadyOpen) {//opens a new viewer anyway
+		print("viewingmodality=[Show in current viewer] ");
+		run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in current viewer] "+
+			"enablearbitraryplaneslicing=true file=["+inputPath+"] seriesindex="+
+			seriesindex);
+	}
+	else
+*/
+	{
+		print("\n \nviewingmodality=[Show in new viewer] ");
+		print("seriesindex = "+seriesindex);
+		run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] "+
+			"enablearbitraryplaneslicing=true file=["+inputPath+"] seriesindex="+
+			seriesindex);
+	}
 
-//	Can't be closed using an ImageJ command
-	run("BDP2 Open Bio-Formats...", "viewingmodality=[Show in new viewer] enablearbitraryplaneslicing=true file=["
-	+inputPath+"] seriesindex="+seriesindex);
-	//Attempts to get image or viewer title to be able to close it
-	//inputimage = getTitle();//not an ImageJ image
-	//inputimageWindowTitle = getInfo("window.title");
-	//print("inputimageWindowTitle = "+inputimageWindowTitle);
-	/*
-	 * Conclusion: When a new viewer is created in BDP2, it's not added to the ImageJ windows using
+	/* Resulting BigDataViewer can't be closed using an ImageJ command because
+	 * it's not added to the ImageJ windows using
 	 * ij.WindowManager.addWindow(java.awt.Frame win) 
 	 * or
 	 * ij.WindowManager.addWindow(java.awt.Window win)
-	 * and can't therefore not be closed using any ImageJ command
 	 */
 	inputimage = inputFileName;
 	print("\ninputimage = "+inputimage);
-
-
-//exit;// for debug
 
 	for (r=0; r<nregions; r++) {
 		print("");
@@ -256,6 +344,20 @@ function execute() {
 		print("maxx="+maxx[r]+"  maxy="+maxy[r]+"  maxz="+maxz[r]+
 			"  maxc="+maxc[r]+"  maxt="+maxt[r]);
 		outputimagename = inputImageTitle+"_Crop_"+r;
+
+		// BDP2 Crop throws an exception if input image is a TIFF stack
+		// but output looks OK
+
+		run("BDP2 Crop...", "inputimage=["+inputimage+
+			"] outputimagename=["+outputimagename+
+			"] viewingmodality=[Show in current viewer]"+
+			" minx="+minx[r]+" miny="+miny[r]+" minz="+minz[r]+
+				" minc="+minc[r]+" mint="+mint[r]+""+
+			" maxx="+maxx[r]+" maxy="+maxy[r]+" maxz="+maxz[r]+
+				" maxc="+maxc[r]+" maxt="+maxt[r]+" ");
+
+/*
+//ORIGINAL
 		run("BDP2 Crop...", "inputimage=["+inputimage+
 			"] outputimagename=["+outputimagename+
 			"] viewingmodality=[Show in new viewer]"+
@@ -263,6 +365,8 @@ function execute() {
 				" minc="+minc[r]+" mint="+mint[r]+""+
 			" maxx="+maxx[r]+" maxy="+maxy[r]+" maxz="+maxz[r]+
 				" maxc="+maxc[r]+" maxt="+maxt[r]+" ");
+*/
+
 // Commentarize for Debug
 		run("BDP2 Save As...", "inputimage=["+outputimagename+
 			"] directory=["+outputDir+"] numiothreads=1 numprocessingthreads=4"+
@@ -270,15 +374,105 @@ function execute() {
 			" savevolumes=true tiffcompression=[None]"+
 			" tstart="+mint[r]+" tend="+mint[r]);
 // END Commentarize for Debug
-		closeBDPViewer(outputimagename);
+
+		closeBDPViewer(outputimagename);//Doesn't work
 	}
-	closeBDPViewer(inputimage);
+	closeBDPViewer(inputimage);//Doesn't work
 }
+
+function addRegionToManager() {
+	if (crop_whole_CZT_domain) {
+	//region begin :
+		Stack.setPosition(1, slices/2, frames/2);
+		msg = "Draw a rectangle"+
+			"\nPress OK to validate and add another Region"+
+			"\nPress Shift-OK to finish";
+		Roi.setStrokeColor("green");
+		waitForUser(msg);
+		Roi.setPosition(1, 1, 1);
+		roiManager("add");
+		roiManager("select", roiManager("count")-1);
+		roiNum = (roiManager("count")-1)/2 + 1;
+		roiNumStr = String.pad(roiNum, 2);
+		roiManager("Rename", roiNumStr+"_BEGIN");
+		RoiManager.setGroup(0);
+		roiManager("Set Color", "green");
+		roiManager("Set Line Width", 0);
+		roiManager("deselect");
+		print("\nframes = "+frames+"\n ");
+	//region end :
+		Roi.setPosition(channels, slices, frames);
+		roiManager("add");
+		roiManager("select", roiManager("count")-1);
+		roiManager("Rename", roiNumStr+"_END");
+		RoiManager.setGroup(0);
+		roiManager("Set Color", "red");
+		roiManager("Set Line Width", 0);
+	}
+	else {//set CZT domain for each Roi
+	//region begin :
+		Stack.setPosition(previousMinC, previousMinZ, previousMinT);
+		msg = "Draw a rectangle, Select 1st Slice, Channel and Frame\n"+
+			"Press OK to validate";
+		if (stackSize<2)
+			msg = "Draw a rectangle\n"+
+				"Press OK to add a new Region\nPress Shift-OK to finish";
+		Roi.setStrokeColor("green");
+		waitForUser(msg);
+		Stack.getPosition(channel, slice, frame);
+		print("BEGIN : channel="+channel+"  "+"slice="+slice+"  "+"frame="+frame);
+		Roi.setPosition(channel, slice, frame);
+		previousMinC=channel; previousMinZ=slice; previousMinT=frame;
+		roiManager("add");
+		roiManager("select", roiManager("count")-1);
+		roiNum = (roiManager("count")-1)/2 + 1;
+		roiNumStr = String.pad(roiNum, 2);
+		roiManager("Rename", roiNumStr+"_BEGIN");
+		RoiManager.setGroup(0);
+		roiManager("Set Color", "green");
+		roiManager("Set Line Width", 0);
+	//region end :
+		Roi.setStrokeColor("red");
+		roiManager("deselect");
+		Stack.setPosition(previousMaxC, previousMaxZ, previousMaxT);
+		if (stackSize>1)
+			waitForUser("Select last Slice and Frame of region\n"+
+				"DO NOT REMOVE ROI\n"+
+				"Press OK to add a new Region\nPress Shift-OK to finish");
+		Stack.getPosition(channel, slice, frame);
+		print("END : channel="+channel+"  "+"slice="+slice+"  "+"frame="+frame);
+		Roi.setPosition(channel, slice, frame);
+		previousMaxC=channel; previousMaxZ=slice; previousMaxT=frame;
+		roiManager("add");
+		roiManager("select", roiManager("count")-1);
+		roiManager("Rename", roiNumStr+"_END");
+		RoiManager.setGroup(0);
+		roiManager("Set Color", "red");
+		roiManager("Set Line Width", 0);
+	}
+}
+
 
 /**
  * Doesn't work because BDP2 viewers are not ImageJ windows
  */
-function closeBDPViewer(imagename) {
+function closeBDPViewer(imagename) {//Doesn't work
+	return;
+	nonimageWindows = getList("window.titles");
+	if (nonimageWindows.length<1) return;
+	print("\nCurrent Non Image Windows:");
+	for (i=0; i<nonimageWindows.length; i++) {
+		wintitle = nonimageWindows[i];
+		print(wintitle);
+		//if (wintitle != imagename) continue;
+		if (wintitle == imagename) {
+			selectWindow(imagename);
+			run("Close");
+		}
+	}
+}
+
+function closeExceptionWindows() {
 	nonimageWindows = getList("window.titles");
 	if (nonimageWindows.length<1) return;
 	print("\nCurrent Non Image Windows:");
@@ -287,8 +481,8 @@ function closeBDPViewer(imagename) {
 		wintitle = nonimageWindows[i];
 		print(wintitle);
 		//if (wintitle != imagename) continue;
-		if (wintitle == imagename) {
-			selectWindow(imagename);
+		if (wintitle == "Exception") {
+			selectWindow(wintitle);
 			run("Close");
 		}
 	}
@@ -318,17 +512,20 @@ function getSeriesIndex(imageID) {
 	return parseInt(position);
 }
 
-/** Planned for finding highest resolution image in pyramidal series
- *  NOT YET OPERATIVE
- *  Requires run("Bio-Formats Macro Extensions");
+/** Requires run("Bio-Formats Macro Extensions");
  * 'file' filename with extension
+ * Adapted from 'extract_series_from_leica_lif.ijm' macro
+ * from Erwan Grandgirard and Bertrand Vernay 
+ * Does not work with HDF5 and Metamorph ND files
  **/
-function analyzeSeriesNames(dir, file) {
-	print("analyzeSeriesNames(dir, file),\nfile = "+file);
-	failed = "analyzeSeriesNames(dir, file) failed";
+function findSeriesIndex(dir, file, seriesname) {
+	print("findSeriesIndex(dir, file),\nfile = "+file);
+	failed = "findSeriesIndex(dir, file) not adapted for HDF5 or ND files";
 	if (endsWith(file, ".h5")) {print(failed); return;}
 	if (endsWith(file, ".nd")) {print(failed); return;}
 	path=dir+file;
+	print("file = "+file);
+	print("seriesname = "+seriesname);
 	Ext.setId(path);
 	Ext.getCurrentFile(file);
 	Ext.getSeriesCount(seriesCount);//gets the number of series in input file
@@ -337,28 +534,39 @@ function analyzeSeriesNames(dir, file) {
 //http://imagej.1557.x6.nabble.com/multiple-series-with-bioformats-importer-td5003491.html
 	//while next size is a fraction of current (1/3 for CZI, 1/2 for BDP2 HDF5
 	//the images belon to the same pyramidal series with different resolutions
+	index = 0;
+	Ext.getUsedFileCount(count);
+	print("usedFileCount = "+count);
 	for (j=0; j<seriesCount; j++) {
 		//print("Extracting Series "+j+1+" / "+seriesCount);
 		Ext.setSeries(j);
 		Ext.getSeriesName(seriesName);
 		print("seriesName = "+seriesName);
-		Ext.getUsedFileCount(count);
-		print("usedFileCount = "+count);
-/*
-		Ext.getUsedFile(j, used);//Macro Error
-		print("used file : j = "+j+"File = "+used);
-*/
+		print("index = "+index);
+//		Ext.getUsedFileCount(count);
 		Ext.getCurrentFile(currentFile);
-		print("file = "+currentFile);
+		//print("file = "+currentFile);
 		Ext.getSizeX(sizeX);
         Ext.getSizeY(sizeY);
-		print("sizeX = "+sizeX+"    sizeY = "+sizeY);
-		seriesName = replace(seriesName, "\"", "");
+		//print("sizeX = "+sizeX+"    sizeY = "+sizeY);
+		//seriesName = replace(seriesName, "\"", "");
+		//if (seriesName == imageTitle) break;
+		//if (seriesName == seriesname) break;
+		//if (seriesName == seriesname) return j;
+		if (endsWith(seriesname, seriesName)) return j;
+		index ++;
 	}
-	print("analyzeSeriesNames(dir, file) END");
+	print("findSeriesIndex(dir, file, imageTitle) END");
+	//inputImageTitle = seriesName;//case only 1 series in input file
+	return index;
 }
 
-function chooseImageToProcess(path) {//not used
+/*
+ * from extract_series_from_leica_lif_split.ijm,
+ * Erwan Grandgirard and Bertrand Vernay
+ */
+function chooseImageToProcess(path) {
+	//from extract_series_from_leica_lif_split.ijm, 
 	Ext.setId(path);
 	Ext.getCurrentFile(path);
 	Ext.getSeriesCount(seriesCount); // this gets the number of series
@@ -367,50 +575,13 @@ function chooseImageToProcess(path) {//not used
 	for (j=0; j<seriesCount; j++) {
         Ext.setSeries(j);
         Ext.getSeriesName(seriesName);
-		run("Bio-Formats Importer", "open=&path color_mode=Default view=Hyperstack stack_order=XYCZT series_"+j+1); 
+		run("Bio-Formats Importer", "open=&path color_mode=Default "+
+			"view=Hyperstack stack_order=XYCZT series_"+j+1); 
 		fileNameWithoutExtension = File.nameWithoutExtension;
 		//print(fileNameWithoutExtension);
 		saveAs("tiff", dir2+fileNameWithoutExtension+"_"+seriesName+".tif");
 		run("Close");
 	}
-}
-
-function addRegionToManager() {
-//region begin
-	Stack.setPosition(previousMinC, previousMinZ, previousMinT);
-	msg = "Draw a rectangle, Select 1st Slice, Channel and Frame\n"+
-		"Press OK to validate";
-	if (stackSize<2)
-		msg = "Draw a rectangle\n"+
-			"Press OK to add a new Region\nPress Shift-OK to finish";
-	waitForUser(msg);
-	Stack.getPosition(channel, slice, frame);
-	Roi.setPosition(channel, slice, frame);
-	previousMinC=channel; previousMinZ=slice; previousMinT=frame;
-	roiManager("add");
-	roiManager("select", roiManager("count")-1);
-	roiNum = (roiManager("count")-1)/2 + 1;
-	roiNumStr = String.pad(roiNum, 2);
-	roiManager("Rename", roiNumStr+"_BEGIN");
-	RoiManager.setGroup(0);
-	roiManager("Set Color", "green");
-	roiManager("Set Line Width", 0);
-//region end
-	roiManager("deselect");
-	Stack.setPosition(previousMaxC, previousMaxZ, previousMaxT);
-	if (stackSize>1)
-		waitForUser("Select last Slice and Frame of region\n"+
-			"DO NOT REMOVE ROI\n"+
-			"Press OK to add a new Region\nPress Shift-OK to finish");
-	Stack.getPosition(channel, slice, frame);
-	Roi.setPosition(channel, slice, frame);
-	previousMaxC=channel; previousMaxZ=slice; previousMaxT=frame;
-	roiManager("add");
-	roiManager("select", roiManager("count")-1);
-	roiManager("Rename", roiNumStr+"_END");
-	RoiManager.setGroup(0);
-	roiManager("Set Color", "red");
-	roiManager("Set Line Width", 0);
 }
 
 function macroDescription() {
@@ -458,7 +629,7 @@ function getFiles(dir) {
 	}
 	if (j<1) {
 		showMessage(macroName,"Input folder:\n"+dir+
-			"\nseems not to contain Metamorph images to merge");
+			"\nseems not to contain Metamorph images");
 		exit();
 	}
 	for (i=0; i<list2.length; i++) {
